@@ -493,20 +493,44 @@ button:hover {
   object-position: center;
   border-radius: 20px;
 }
+/* ===== Gallery Images ===== */
+
+.photo {
+  height: 260px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.photo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover; /* Change: 'contain' ki jagah 'cover' kiya hai */
+  object-position: center;
+  border-radius: 20px;
+}
+
 /* ===== Uploaded Photo Gallery ===== */
 
 .photo-card {
+  width: 100%;
   height: 260px;
   padding: 0;
   overflow: hidden;
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.08);
+  position: relative;
 }
 
 .photo-card img {
   width: 100%;
   height: 100%;
   display: block;
-  object-fit: contain;
+  object-fit: cover;
   object-position: center;
 }
