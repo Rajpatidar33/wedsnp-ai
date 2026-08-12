@@ -1,202 +1,125 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import { supabase } from "../supabaseClient";
+import React, { useState, useEffect } from "react";
+import { supabase } from "../supabase";
 
-function Gallery() {
-  const { eventId } = useParams();
-
+export default function Gallery({ eventId }) {
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
-  const [authorized, setAuthorized] = useState(false);
-
-  const loadPhotos = async () => {
-    if (!eventId) return;
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      alert("Please login first.");
-      return;
-    }
-
-    // Check that the logged-in user owns this event
-    const { data: event, error: eventError } = await supabase
-      .from("events")
-      .select("id")
-      .eq("id", eventId)
-      .eq("user_id", user.id)
-      .single();
-
-    if (eventError || !event) {
-      console.error("Event access error:", eventError);
-      alert("You are not authorized to view this event.");
-      return;
-    }
-
-    setAuthorized(true);
-
-    // Load photos from private bucket
-    const { data, error } = await supabase.storage
-      .from("event-photos")
-      .list(eventId, {
-        limit: 100,
-        sortBy: {
-          column: "created_at",
-          order: "desc",
-        },
-      });
-
-    if (error) {
-      console.error("Error loading photos:", error);
-      return;
-    }
-
-    const photoUrls = [];
-
-    for (const file of data || []) {
-      if (file.name === ".emptyFolderPlaceholder") continue;
-
-      const filePath = `${eventId}/${file.name}`;
-
-      const { data: signedData, error: signedError } =
-        await supabase.storage
-          .from("event-photos")
-          .createSignedUrl(filePath, 3600);
-
-      if (signedError) {
-        console.error("Signed URL error:", signedError);
-        continue;
-      }
-
-      photoUrls.push({
-        id: file.id || file.name,
-        name: file.name,
-        url: signedData.signedUrl,
-      });
-    }
-
-    setPhotos(photoUrls);
-  };
 
   useEffect(() => {
-    loadPhotos();
+    if (eventId) fetchPhotos();
   }, [eventId]);
 
+  // Fetch photos from Supabase database
+  const fetchPhotos = async () => {
+    const { data, error } = await supabase
+      .from("photos")
+      .select("*")
+      .eq("event_id", eventId);
+
+    if (error) console.error("Error fetching photos:", error);
+    else setPhotos(data || []);
+  };
+
+  // Upload photo handler
   const handleUpload = async (e) => {
-    const files = Array.from(e.target.files || []);
+    try {
+      setUploading(true);
+      const file = e.target.files[0];
+      if (!file) return;
 
-    if (!files.length || !eventId) return;
-
-    setUploading(true);
-
-    for (const file of files) {
-      const fileName = `${Date.now()}-${file.name}`;
+      const fileExt = file.name.split(".").pop();
+      const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `${eventId}/${fileName}`;
 
-      const { error } = await supabase.storage
+      // 1. Upload to Supabase Storage Bucket
+      const { error: uploadError } = await supabase.storage
         .from("event-photos")
         .upload(filePath, file);
 
-      if (error) {
-        console.error("Upload error:", error);
-        alert(`Upload failed: ${error.message}`);
-        continue;
+      if (uploadError) throw uploadError;
+
+      // 2. Get Public URL
+      const { data: urlData } = supabase.storage
+        .from("event-photos")
+        .getPublicUrl(filePath);
+
+      // 3. Save reference in Database Table
+      const { error: dbError } = await supabase.from("photos").insert([
+        {
+          event_id: eventId,
+          url: urlData.publicUrl,
+          storage_path: filePath,
+        },
+      ]);
+
+      if (dbError) throw dbError;
+
+      fetchPhotos();
+    } catch (err) {
+      alert("Error uploading photo: " + err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Delete photo handler
+  const handleDelete = async (photoId, storagePath) => {
+    if (!window.confirm("Kya aap is photo ko delete karna chahte hain?")) return;
+
+    try {
+      // 1. Delete from Storage
+      if (storagePath) {
+        await supabase.storage.from("event-photos").remove([storagePath]);
       }
+
+      // 2. Delete from Database
+      const { error } = await supabase.from("photos").delete().eq("id", photoId);
+
+      if (error) throw error;
+
+      // Update state
+      setPhotos(photos.filter((p) => p.id !== photoId));
+      alert("Photo delete ho gayi!");
+    } catch (err) {
+      alert("Delete karne me error aaya: " + err.message);
     }
-
-    await loadPhotos();
-
-    setUploading(false);
-    e.target.value = "";
   };
-
-  const handleDelete = async (fileName) => {
-    if (!eventId || !fileName) return;
-
-    const confirmDelete = window.confirm(
-      "Are you sure you want to delete this photo?"
-    );
-
-    if (!confirmDelete) return;
-
-    const filePath = `${eventId}/${fileName}`;
-
-    const { error } = await supabase.storage
-      .from("event-photos")
-      .remove([filePath]);
-
-    if (error) {
-      console.error("Delete error:", error);
-      alert(`Delete failed: ${error.message}`);
-      return;
-    }
-
-    setPhotos((previousPhotos) =>
-      previousPhotos.filter((photo) => photo.name !== fileName)
-    );
-  };
-
-  if (!authorized) {
-    return (
-      <main className="gallery-page">
-        <section className="gallery-header">
-          <p>Checking event access...</p>
-        </section>
-      </main>
-    );
-  }
 
   return (
-    <main className="gallery-page">
-      <section className="gallery-header">
-        <p className="hero-badge">📸 Event Gallery</p>
-
-        <h1>Photo Gallery</h1>
-
-        <p>
-          Upload your event photos and preview them in your gallery.
-        </p>
-
-        <label className="upload-btn">
-          📤 {uploading ? "Uploading..." : "Upload Photos"}
-
+    <div className="p-4">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold">Photo Gallery</h2>
+        <label className="bg-blue-600 text-white px-4 py-2 rounded cursor-pointer hover:bg-blue-700">
+          {uploading ? "Uploading..." : "Upload Photo"}
           <input
             type="file"
             accept="image/*"
-            multiple
             onChange={handleUpload}
-            hidden
             disabled={uploading}
+            className="hidden"
           />
         </label>
-      </section>
+      </div>
 
-      <section className="gallery-grid">
-        {photos.length === 0 ? (
-          <div className="card empty-gallery">
-            <h2>📷 No Photos Yet</h2>
-
-            <p>Upload some photos to start your gallery.</p>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {photos.map((photo) => (
+          <div key={photo.id} className="relative group border rounded-lg overflow-hidden shadow">
+            <img
+              src={photo.url}
+              alt="Event Photo"
+              className="w-full h-48 object-cover"
+            />
+            {/* Delete Button overlay */}
+            <button
+              onClick={() => handleDelete(photo.id, photo.storage_path)}
+              className="absolute top-2 right-2 bg-red-600 text-white p-2 rounded-full opacity-90 hover:opacity-100 hover:bg-red-700 transition"
+              title="Delete Photo"
+            >
+              🗑️
+            </button>
           </div>
-        ) : (
-          photos.map((photo) => (
-            <div className="photo-card" key={photo.id}>
-              <img src={photo.url} alt={photo.name} />
-
-              <button
-                className=""
-                onClick={() => handleDelete(photo.name)}
-              >
-                🗑️ Delete
-              </button>
-            </div>
-          ))
-        )}
-      </section>
-    </main>
+        ))}
+      </div>
+    </div>
   );
 }
-
-export default Gallery;
