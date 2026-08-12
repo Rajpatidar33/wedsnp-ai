@@ -7,10 +7,37 @@ function Gallery() {
 
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [authorized, setAuthorized] = useState(false);
 
   const loadPhotos = async () => {
     if (!eventId) return;
 
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      alert("Please login first.");
+      return;
+    }
+
+    // Check that the logged-in user owns this event
+    const { data: event, error: eventError } = await supabase
+      .from("events")
+      .select("id")
+      .eq("id", eventId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (eventError || !event) {
+      console.error("Event access error:", eventError);
+      alert("You are not authorized to view this event.");
+      return;
+    }
+
+    setAuthorized(true);
+
+    // Load photos from private bucket
     const { data, error } = await supabase.storage
       .from("event-photos")
       .list(eventId, {
@@ -26,21 +53,29 @@ function Gallery() {
       return;
     }
 
-    const photoUrls = (data || [])
-      .filter((file) => file.name !== ".emptyFolderPlaceholder")
-      .map((file) => {
-        const filePath = `${eventId}/${file.name}`;
+    const photoUrls = [];
 
-        const { data: urlData } = supabase.storage
+    for (const file of data || []) {
+      if (file.name === ".emptyFolderPlaceholder") continue;
+
+      const filePath = `${eventId}/${file.name}`;
+
+      const { data: signedData, error: signedError } =
+        await supabase.storage
           .from("event-photos")
-          .getPublicUrl(filePath);
+          .createSignedUrl(filePath, 3600);
 
-        return {
-          id: file.id || file.name,
-          name: file.name,
-          url: urlData.publicUrl,
-        };
+      if (signedError) {
+        console.error("Signed URL error:", signedError);
+        continue;
+      }
+
+      photoUrls.push({
+        id: file.id || file.name,
+        name: file.name,
+        url: signedData.signedUrl,
       });
+    }
 
     setPhotos(photoUrls);
   };
@@ -77,6 +112,42 @@ function Gallery() {
     e.target.value = "";
   };
 
+  const handleDelete = async (fileName) => {
+    if (!eventId || !fileName) return;
+
+    const confirmDelete = window.confirm(
+      "Are you sure you want to delete this photo?"
+    );
+
+    if (!confirmDelete) return;
+
+    const filePath = `${eventId}/${fileName}`;
+
+    const { error } = await supabase.storage
+      .from("event-photos")
+      .remove([filePath]);
+
+    if (error) {
+      console.error("Delete error:", error);
+      alert(`Delete failed: ${error.message}`);
+      return;
+    }
+
+    setPhotos((previousPhotos) =>
+      previousPhotos.filter((photo) => photo.name !== fileName)
+    );
+  };
+
+  if (!authorized) {
+    return (
+      <main className="gallery-page">
+        <section className="gallery-header">
+          <p>Checking event access...</p>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="gallery-page">
       <section className="gallery-header">
@@ -106,12 +177,20 @@ function Gallery() {
         {photos.length === 0 ? (
           <div className="card empty-gallery">
             <h2>📷 No Photos Yet</h2>
+
             <p>Upload some photos to start your gallery.</p>
           </div>
         ) : (
           photos.map((photo) => (
             <div className="photo-card" key={photo.id}>
               <img src={photo.url} alt={photo.name} />
+
+              <button
+                className=""
+                onClick={() => handleDelete(photo.name)}
+              >
+                🗑️ Delete
+              </button>
             </div>
           ))
         )}
