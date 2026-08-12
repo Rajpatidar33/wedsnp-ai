@@ -1,15 +1,9 @@
 import React, { useState, useEffect } from "react";
-<<<<<<< HEAD
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
 
 export default function Gallery() {
   const { id: eventId } = useParams();
-=======
-import { supabase } from "../supabase";
-
-export default function Gallery({ eventId }) {
->>>>>>> master
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
 
@@ -17,60 +11,46 @@ export default function Gallery({ eventId }) {
     if (eventId) fetchPhotos();
   }, [eventId]);
 
-<<<<<<< HEAD
-=======
-  // Fetch photos from Supabase database
->>>>>>> master
   const fetchPhotos = async () => {
-    const { data, error } = await supabase
-      .from("photos")
-      .select("*")
-      .eq("event_id", eventId);
+    try {
+      const { data, error } = await supabase
+        .from("photos")
+        .select("*")
+        .eq("event_id", eventId);
 
-    if (error) console.error("Error fetching photos:", error);
-    else setPhotos(data || []);
+      if (error) console.error("Error fetching photos:", error);
+      else setPhotos(data || []);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-<<<<<<< HEAD
-=======
-  // Upload photo handler
->>>>>>> master
   const handleUpload = async (e) => {
     try {
       setUploading(true);
-      const file = e.target.files[0];
+      const file = e.target.files?.[0];
       if (!file) return;
 
       const fileExt = file.name.split(".").pop();
       const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `${eventId}/${fileName}`;
 
-<<<<<<< HEAD
-=======
-      // 1. Upload to Supabase Storage Bucket
->>>>>>> master
       const { error: uploadError } = await supabase.storage
         .from("event-photos")
         .upload(filePath, file);
 
       if (uploadError) throw uploadError;
 
-<<<<<<< HEAD
-=======
-      // 2. Get Public URL
->>>>>>> master
       const { data: urlData } = supabase.storage
         .from("event-photos")
         .getPublicUrl(filePath);
 
-<<<<<<< HEAD
-=======
-      // 3. Save reference in Database Table
->>>>>>> master
+      const publicUrl = urlData?.publicUrl || "";
+
       const { error: dbError } = await supabase.from("photos").insert([
         {
           event_id: eventId,
-          url: urlData.publicUrl,
+          url: publicUrl,
           storage_path: filePath,
         },
       ]);
@@ -79,69 +59,36 @@ export default function Gallery({ eventId }) {
 
       fetchPhotos();
     } catch (err) {
-<<<<<<< HEAD
-      alert("Upload error: " + err.message);
-=======
-      alert("Error uploading photo: " + err.message);
->>>>>>> master
+      alert("Upload error: " + (err.message || err));
     } finally {
       setUploading(false);
     }
   };
 
-<<<<<<< HEAD
-=======
-  // Delete photo handler
->>>>>>> master
   const handleDelete = async (photoId, storagePath) => {
-    if (!window.confirm("Kya aap is photo ko delete karna chahte hain?")) return;
+    if (!window.confirm("Kya aap photo delete karna chahte hain?")) return;
 
     try {
-<<<<<<< HEAD
-=======
-      // 1. Delete from Storage
->>>>>>> master
       if (storagePath) {
         await supabase.storage.from("event-photos").remove([storagePath]);
       }
 
-<<<<<<< HEAD
       const { error } = await supabase.from("photos").delete().eq("id", photoId);
       if (error) throw error;
 
-      setPhotos(photos.filter((p) => p.id !== photoId));
+      setPhotos((prev) => prev.filter((p) => p.id !== photoId));
       alert("Photo delete ho gayi!");
     } catch (err) {
-      alert("Delete error: " + err.message);
-=======
-      // 2. Delete from Database
-      const { error } = await supabase.from("photos").delete().eq("id", photoId);
-
-      if (error) throw error;
-
-      // Update state
-      setPhotos(photos.filter((p) => p.id !== photoId));
-      alert("Photo delete ho gayi!");
-    } catch (err) {
-      alert("Delete karne me error aaya: " + err.message);
->>>>>>> master
+      alert("Delete error: " + (err.message || err));
     }
   };
 
   return (
-<<<<<<< HEAD
     <div className="max-w-6xl mx-auto p-6 text-white">
       <div className="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
-        <h1 className="text-3xl font-bold">📷 Photo Gallery</h1>
+        <h1 className="text-3xl font-bold">📷 Event Gallery</h1>
         <label className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg cursor-pointer transition shadow-lg">
-          {uploading ? "Uploading..." : "📤 Upload Photos"}
-=======
-    <div className="p-4">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">Photo Gallery</h2>
-        <label className="bg-blue-600 text-white px-4 py-2 rounded cursor-pointer hover:bg-blue-700">
-          {uploading ? "Uploading..." : "Upload Photo"}
->>>>>>> master
+          {uploading ? "Uploading..." : "📤 Upload Photo"}
           <input
             type="file"
             accept="image/*"
@@ -152,49 +99,32 @@ export default function Gallery({ eventId }) {
         </label>
       </div>
 
-<<<<<<< HEAD
       {photos.length === 0 ? (
-        <p className="text-gray-400 text-center py-10">Abhi tak koi photo upload nahi hui hai.</p>
+        <p className="text-gray-400 text-center py-10">
+          Abhi tak koi photo upload nahi hui hai.
+        </p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {photos.map((photo) => (
-            <div key={photo.id} className="relative group border border-gray-700 rounded-xl overflow-hidden shadow-xl bg-gray-800 p-2">
+            <div
+              key={photo.id}
+              className="relative group border border-gray-700 rounded-xl overflow-hidden shadow-xl bg-gray-800"
+            >
               <img
-                src={photo.url}
+                src={photo.url || photo.storage_path}
                 alt="Event Photo"
-                className="w-full h-48 object-cover rounded-lg"
+                className="w-full h-56 object-cover"
               />
               <button
                 onClick={() => handleDelete(photo.id, photo.storage_path)}
-                className="mt-2 w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg text-sm font-bold shadow transition flex items-center justify-center gap-1"
+                className="absolute top-3 right-3 bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-md transition"
               >
-                🗑️ Delete Photo
+                🗑️ Delete
               </button>
             </div>
           ))}
         </div>
       )}
-=======
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {photos.map((photo) => (
-          <div key={photo.id} className="relative group border rounded-lg overflow-hidden shadow">
-            <img
-              src={photo.url}
-              alt="Event Photo"
-              className="w-full h-48 object-cover"
-            />
-            {/* Delete Button overlay */}
-            <button
-              onClick={() => handleDelete(photo.id, photo.storage_path)}
-              className="absolute top-2 right-2 bg-red-600 text-white p-2 rounded-full opacity-90 hover:opacity-100 hover:bg-red-700 transition"
-              title="Delete Photo"
-            >
-              🗑️
-            </button>
-          </div>
-        ))}
-      </div>
->>>>>>> master
     </div>
   );
 }
