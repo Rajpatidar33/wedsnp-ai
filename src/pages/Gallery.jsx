@@ -1,123 +1,119 @@
-import { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { supabase } from "../supabaseClient";
+import { supabase } from "../supabase";
 
-function Gallery() {
-  const { eventId } = useParams();
-
+export default function Gallery() {
+  const { id: eventId } = useParams();
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
 
-  const loadPhotos = async () => {
-    if (!eventId) return;
-
-    const { data, error } = await supabase.storage
-      .from("event-photos")
-      .list(eventId, {
-        limit: 100,
-        sortBy: {
-          column: "created_at",
-          order: "desc",
-        },
-      });
-
-    if (error) {
-      console.error("Error loading photos:", error);
-      return;
-    }
-
-    const photoUrls = (data || [])
-      .filter((file) => file.name !== ".emptyFolderPlaceholder")
-      .map((file) => {
-        const filePath = `${eventId}/${file.name}`;
-
-        const { data: urlData } = supabase.storage
-          .from("event-photos")
-          .getPublicUrl(filePath);
-
-        return {
-          id: file.id || file.name,
-          name: file.name,
-          url: urlData.publicUrl,
-        };
-      });
-
-    setPhotos(photoUrls);
-  };
-
   useEffect(() => {
-    loadPhotos();
+    if (eventId) fetchPhotos();
   }, [eventId]);
 
+  const fetchPhotos = async () => {
+    const { data, error } = await supabase
+      .from("photos")
+      .select("*")
+      .eq("event_id", eventId);
+
+    if (error) console.error("Error fetching photos:", error);
+    else setPhotos(data || []);
+  };
+
   const handleUpload = async (e) => {
-    const files = Array.from(e.target.files || []);
+    try {
+      setUploading(true);
+      const file = e.target.files[0];
+      if (!file) return;
 
-    if (!files.length || !eventId) return;
-
-    setUploading(true);
-
-    for (const file of files) {
-      const fileName = `${Date.now()}-${file.name}`;
+      const fileExt = file.name.split(".").pop();
+      const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `${eventId}/${fileName}`;
 
-      const { error } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from("event-photos")
         .upload(filePath, file);
 
-      if (error) {
-        console.error("Upload error:", error);
-        alert(`Upload failed: ${error.message}`);
-        continue;
-      }
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from("event-photos")
+        .getPublicUrl(filePath);
+
+      const { error: dbError } = await supabase.from("photos").insert([
+        {
+          event_id: eventId,
+          url: urlData.publicUrl,
+          storage_path: filePath,
+        },
+      ]);
+
+      if (dbError) throw dbError;
+
+      fetchPhotos();
+    } catch (err) {
+      alert("Upload error: " + err.message);
+    } finally {
+      setUploading(false);
     }
+  };
 
-    await loadPhotos();
+  const handleDelete = async (photoId, storagePath) => {
+    if (!window.confirm("Kya aap is photo ko delete karna chahte hain?")) return;
 
-    setUploading(false);
-    e.target.value = "";
+    try {
+      if (storagePath) {
+        await supabase.storage.from("event-photos").remove([storagePath]);
+      }
+
+      const { error } = await supabase.from("photos").delete().eq("id", photoId);
+      if (error) throw error;
+
+      setPhotos(photos.filter((p) => p.id !== photoId));
+      alert("Photo delete ho gayi!");
+    } catch (err) {
+      alert("Delete error: " + err.message);
+    }
   };
 
   return (
-    <main className="gallery-page">
-      <section className="gallery-header">
-        <p className="hero-badge">📸 Event Gallery</p>
-
-        <h1>Photo Gallery</h1>
-
-        <p>
-          Upload your event photos and preview them in your gallery.
-        </p>
-
-        <label className="upload-btn">
-          📤 {uploading ? "Uploading..." : "Upload Photos"}
-
+    <div className="max-w-6xl mx-auto p-6 text-white">
+      <div className="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
+        <h1 className="text-3xl font-bold">📷 Photo Gallery</h1>
+        <label className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg cursor-pointer transition shadow-lg">
+          {uploading ? "Uploading..." : "📤 Upload Photos"}
           <input
             type="file"
             accept="image/*"
-            multiple
             onChange={handleUpload}
-            hidden
             disabled={uploading}
+            className="hidden"
           />
         </label>
-      </section>
+      </div>
 
-      <section className="gallery-grid">
-        {photos.length === 0 ? (
-          <div className="card empty-gallery">
-            <h2>📷 No Photos Yet</h2>
-            <p>Upload some photos to start your gallery.</p>
-          </div>
-        ) : (
-          photos.map((photo) => (
-            <div className="photo-card" key={photo.id}>
-              <img src={photo.url} alt={photo.name} />
+      {photos.length === 0 ? (
+        <p className="text-gray-400 text-center py-10">Abhi tak koi photo upload nahi hui hai.</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          {photos.map((photo) => (
+            <div key={photo.id} className="relative group border border-gray-700 rounded-xl overflow-hidden shadow-xl bg-gray-800 p-2">
+              <img
+                src={photo.url}
+                alt="Event Photo"
+                className="w-full h-48 object-cover rounded-lg"
+              />
+              <button
+                onClick={() => handleDelete(photo.id, photo.storage_path)}
+                className="mt-2 w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg text-sm font-bold shadow transition flex items-center justify-center gap-1"
+              >
+                🗑️ Delete Photo
+              </button>
             </div>
-          ))
-        )}
-      </section>
-    </main>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
-
-export default Gallery;
